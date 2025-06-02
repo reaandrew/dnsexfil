@@ -78,3 +78,8 @@ temp/
 *.pfx
 secrets.json
 credentials.json
+
+venv
+
+# Lambda deployment packages
+*.zip

@@ -222,7 +222,7 @@ best AS (
   SELECT *
   FROM (
     SELECT *, 
-           row_number() OVER (PARTITION BY fqdn ORDER BY suffix_len DESC) AS rn
+           row_number() OVER (PARTITION BY fqdn ORDER BY suffix_len DESC, ts DESC) AS rn
     FROM match
   )
   WHERE rn = 1
@@ -341,22 +341,25 @@ WITH dns AS (
   FROM dns_logs_db.resolver_dns_logs
   WHERE from_iso8601_timestamp(query_timestamp) >= CURRENT_TIMESTAMP - INTERVAL '24' HOUR
 ),
-parts AS (
-  SELECT
+aggregated AS (
+  SELECT 
     fqdn,
-    srcaddr,
-    ts,
+    count(*) as query_count,
+    count(DISTINCT srcaddr) as source_count,
+    min(ts) as first_seen,
+    max(ts) as last_seen,
     split(fqdn, '.') AS labels
   FROM dns
+  GROUP BY fqdn
 ),
 match AS (
   SELECT
-    p.*,
+    a.*,
     s.suffix,
     s.labels AS suffix_len
-  FROM parts p
+  FROM aggregated a
   JOIN dns_logs_db.public_suffixes s
-    ON (p.fqdn LIKE '%.' || s.suffix OR p.fqdn = s.suffix)
+    ON (a.fqdn LIKE '%.' || s.suffix OR a.fqdn = s.suffix)
 ),
 best AS (
   SELECT *
@@ -373,11 +376,11 @@ SELECT
       concat(element_at(labels, cardinality(labels) - suffix_len), '.', suffix)
     ELSE suffix
   END AS apex_domain,
-  srcaddr,
   count(DISTINCT fqdn) AS unique_subdomains,
-  count(*) AS total_queries,
-  min(ts) AS first_seen,
-  max(ts) AS last_seen
+  sum(query_count) AS total_queries,
+  max(source_count) AS source_count,
+  min(first_seen) AS first_seen,
+  max(last_seen) AS last_seen
 FROM best
 WHERE cardinality(labels) > suffix_len + 1
 GROUP BY 
@@ -385,8 +388,7 @@ GROUP BY
     WHEN cardinality(labels) > suffix_len THEN
       concat(element_at(labels, cardinality(labels) - suffix_len), '.', suffix)
     ELSE suffix
-  END,
-  srcaddr
+  END
 HAVING count(DISTINCT fqdn) > 5
 ORDER BY unique_subdomains DESC
 LIMIT 50;

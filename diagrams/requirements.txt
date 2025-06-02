@@ -1,0 +1,20 @@
+# Pure Python Diagram Dependencies
+# No system dependencies like graphviz required
+
+# For NetworkX + Matplotlib approach
+networkx>=3.0
+matplotlib>=3.6.0
+
+# For pure Matplotlib approach (included with matplotlib)
+# matplotlib>=3.6.0
+
+# For Plotly interactive diagrams
+plotly>=5.0.0
+
+# Optional: Enhanced plotting capabilities
+numpy>=1.21.0
+
+# Optional: PIL/Pillow for advanced image manipulation
+Pillow>=9.0.0
+
+# Note: ASCII diagrams require no additional dependencies beyond Python standard library
