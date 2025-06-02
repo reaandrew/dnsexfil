@@ -20,10 +20,11 @@ build-lambdas: clean $(LAMBDA_PACKAGES)
 	@echo "All Lambda packages built successfully!"
 
 # Generic rule to build any Lambda function
-infrastructure/%.zip: lambdas/%
-	$(eval LAMBDA_NAME := $(shell basename $<))
-	$(eval ZIP_NAME := $(subst -,_,$(LAMBDA_NAME)))
-	@echo "Building $(LAMBDA_NAME) Lambda..."
+infrastructure/%.zip:
+	$(eval ZIP_NAME := $(notdir $@))
+	$(eval ZIP_BASENAME := $(basename $(ZIP_NAME)))
+	$(eval LAMBDA_NAME := $(subst _,-,$(ZIP_BASENAME)))
+	@echo "Building $(LAMBDA_NAME) Lambda ($(ZIP_NAME))..."
 	@cd lambdas/$(LAMBDA_NAME) && \
 		if [ -f requirements.txt ] && [ -s requirements.txt ] && ! grep -q "^# No additional requirements" requirements.txt; then \
 			echo "Installing dependencies for $(LAMBDA_NAME)..."; \
@@ -32,8 +33,8 @@ infrastructure/%.zip: lambdas/%
 			rm -rf .venv; \
 		fi
 	@cd lambdas/$(LAMBDA_NAME) && \
-		zip -r ../../infrastructure/$(ZIP_NAME).zip . -x "*.pyc" "__pycache__/*" ".venv/*" "*.md" "requirements.txt"
-	@echo "$(LAMBDA_NAME) package created: infrastructure/$(ZIP_NAME).zip"
+		zip -r ../../infrastructure/$(ZIP_NAME) . -x "*.pyc" "__pycache__/*" ".venv/*" "*.md"
+	@echo "$(LAMBDA_NAME) package created: infrastructure/$(ZIP_NAME)"
 
 # Clean build artifacts
 clean:
@@ -53,7 +54,7 @@ plan: build-lambdas
 
 deploy: build-lambdas
 	@echo "Deploying infrastructure..."
-	@cd infrastructure && terraform apply
+	@cd infrastructure && terraform apply -auto-approve
 
 destroy:
 	@echo "Destroying infrastructure..."
