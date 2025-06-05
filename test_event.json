@@ -1,0 +1,23 @@
+{
+  "Records": [
+    {
+      "eventVersion": "2.1",
+      "eventSource": "aws:s3",
+      "awsRegion": "eu-west-2",
+      "eventTime": "2025-06-02T19:51:46.000Z",
+      "eventName": "ObjectCreated:Put",
+      "s3": {
+        "s3SchemaVersion": "1.0",
+        "configurationId": "dns-log-notification",
+        "bucket": {
+          "name": "dnsexfil-demo-athena-logs",
+          "arn": "arn:aws:s3:::dnsexfil-demo-athena-logs"
+        },
+        "object": {
+          "key": "AWSLogs/889772146711/vpcdnsquerylogs/vpc-05125b63af35afb97/2025/06/02/vpc-05125b63af35afb97_vpcdnsquerylogs_889772146711_20250602T1850Z_06b7a1ae.log.gz",
+          "size": 1287
+        }
+      }
+    }
+  ]
+}

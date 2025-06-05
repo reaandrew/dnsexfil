@@ -1,0 +1,1 @@
+{"statusCode": 200, "body": "{\"message\": \"Partition repair initiated\", \"executionId\": \"6f908cdd-c132-4b88-8fbb-6bdd9c145b37\", \"triggeredBy\": \"AWSLogs/889772146711/vpcdnsquerylogs/vpc-05125b63af35afb97/2025/06/02/vpc-05125b63af35afb97_vpcdnsquerylogs_889772146711_20250602T1850Z_06b7a1ae.log.gz\"}"}
