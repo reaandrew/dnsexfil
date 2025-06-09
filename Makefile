@@ -60,7 +60,7 @@ deploy: build-lambdas
 
 destroy:
 	@echo "Destroying infrastructure..."
-	@cd infrastructure && terraform destroy
+	@cd infrastructure && terraform destroy -auto-approve
 
 # Test Lambda functions locally (optional)
 test-lambdas:

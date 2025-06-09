@@ -58,6 +58,8 @@ resource "aws_athena_workgroup" "dns_analysis" {
   tags = {
     Name = "dns-exfiltration-workgroup"
   }
+
+  force_destroy = true
 }
 
 #####################################

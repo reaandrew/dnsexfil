@@ -29,6 +29,13 @@ resource "aws_guardduty_detector" "main" {
   }
 }
 
+# Enable runtime monitoring feature for GuardDuty
+resource "aws_guardduty_detector_feature" "runtime_monitoring" {
+  detector_id = aws_guardduty_detector.main.id
+  name        = "RUNTIME_MONITORING"
+  status      = "ENABLED"
+}
+
 # Optional: Create a CloudWatch Event Rule to capture GuardDuty findings
 resource "aws_cloudwatch_event_rule" "guardduty_findings" {
   name        = "guardduty-dns-findings"
