@@ -191,6 +191,8 @@ resource "aws_athena_named_query" "dns_exfiltration_detection" {
   description = "Detects high frequency DNS queries to apex domains indicating data exfiltration"
   database    = aws_glue_catalog_database.dns_logs_db.name
   workgroup   = aws_athena_workgroup.dns_analysis.name
+  
+  depends_on = [aws_athena_workgroup.dns_analysis]
 
   query = <<-EOT
 WITH dns AS (
@@ -267,6 +269,8 @@ resource "aws_athena_named_query" "dns_data_encoding_detection" {
   description = "Detects encoded data in DNS subdomain names (Base64, Hex patterns)"
   database    = aws_glue_catalog_database.dns_logs_db.name
   workgroup   = aws_athena_workgroup.dns_analysis.name
+  
+  depends_on = [aws_athena_workgroup.dns_analysis]
 
   query = <<-EOT
 WITH dns AS (
@@ -352,6 +356,8 @@ resource "aws_athena_named_query" "subdomain_enumeration" {
   description = "Detects high numbers of unique subdomains per apex domain - potential reconnaissance"
   database    = aws_glue_catalog_database.dns_logs_db.name
   workgroup   = aws_athena_workgroup.dns_analysis.name
+  
+  depends_on = [aws_athena_workgroup.dns_analysis]
 
   query = <<-EOT
 WITH dns AS (

@@ -55,6 +55,8 @@ plan: build-lambdas
 deploy: build-lambdas
 	@echo "Deploying infrastructure..."
 	@cd infrastructure && terraform apply -auto-approve
+	@echo "Uploading Public Suffix List data..."
+	@$(MAKE) update-psl
 
 destroy:
 	@echo "Destroying infrastructure..."
@@ -71,6 +73,11 @@ test-lambdas:
 update-psl:
 	@echo "Updating Public Suffix List data..."
 	@scripts/update_psl.sh
+
+# Show DNS detection timeline
+timeline:
+	@echo "Analyzing DNS detection timeline..."
+	@scripts/dns_timeline.sh $(HOURS)
 
 # Development helpers
 dev-setup:

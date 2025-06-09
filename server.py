@@ -83,7 +83,7 @@ class ExfilResolver(BaseResolver):
             rtype=QTYPE.A,
             rclass=1,
             ttl=60,
-            rdata=A("127.0.0.1")
+            rdata=A(self.apex_ip)
         ))
         return reply
 
