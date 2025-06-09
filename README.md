@@ -145,17 +145,56 @@ done
 
 ## Detection Queries
 
-### High-Frequency Exfiltration Detection
+### DNS Exfiltration Detection (High Frequency)
 ```sql
+WITH dns AS (
+  SELECT
+    lower(trim(TRAILING '.' FROM query_name)) AS fqdn,
+    srcaddr,
+    from_iso8601_timestamp(query_timestamp) AS ts
+  FROM dns_logs_db.resolver_dns_logs
+  WHERE from_iso8601_timestamp(query_timestamp) >= CURRENT_TIMESTAMP - INTERVAL '5' MINUTE
+),
+parts AS (
+  SELECT
+    fqdn,
+    srcaddr,
+    ts,
+    split(fqdn, '.') AS labels
+  FROM dns
+),
+match AS (
+  SELECT
+    p.*,
+    s.suffix,
+    s.labels AS suffix_len
+  FROM parts p
+  JOIN dns_logs_db.public_suffixes s
+    ON (p.fqdn LIKE '%.' || s.suffix OR p.fqdn = s.suffix)
+),
+best AS (
+  SELECT *
+  FROM (
+    SELECT *, 
+           row_number() OVER (PARTITION BY fqdn ORDER BY suffix_len DESC, ts DESC) AS rn
+    FROM match
+  )
+  WHERE rn = 1
+)
 SELECT
   CASE 
     WHEN cardinality(labels) > suffix_len THEN
-      concat(element_at(labels, cardinality(labels) - suffix_len), '.', suffix)
+      concat(
+        element_at(labels, cardinality(labels) - suffix_len),
+        '.', suffix
+      )
     ELSE suffix
   END AS apex_domain,
   count(*) AS query_count,
   count(DISTINCT srcaddr) AS source_count,
   count(DISTINCT fqdn) AS unique_subdomains,
+  min(ts) AS first_seen,
+  max(ts) AS last_seen,
   'HIGH_FREQUENCY' AS threat_type,
   CASE 
     WHEN count(*) > 100 THEN 'CRITICAL'
@@ -163,11 +202,83 @@ SELECT
     WHEN count(*) > 20 THEN 'MEDIUM'
     ELSE 'LOW'
   END AS severity
-FROM dns_with_psl_joined
-WHERE cardinality(labels) > suffix_len + 1  -- Only subdomains
-GROUP BY apex_domain
-HAVING count(*) > 20  -- 5-minute threshold
+FROM best
+WHERE cardinality(labels) > suffix_len + 1  -- Only domains with subdomains
+GROUP BY 
+  CASE 
+    WHEN cardinality(labels) > suffix_len THEN
+      concat(element_at(labels, cardinality(labels) - suffix_len), '.', suffix)
+    ELSE suffix
+  END
+HAVING count(*) > 20  -- Threshold for 5-minute window
 ORDER BY query_count DESC
+LIMIT 50;
+```
+
+### DNS Data Encoding Detection
+```sql
+WITH dns AS (
+  SELECT
+    lower(trim(TRAILING '.' FROM query_name)) AS fqdn,
+    srcaddr,
+    from_iso8601_timestamp(query_timestamp) AS ts
+  FROM dns_logs_db.resolver_dns_logs
+  WHERE from_iso8601_timestamp(query_timestamp) >= CURRENT_TIMESTAMP - INTERVAL '5' MINUTE
+),
+parts AS (
+  SELECT
+    fqdn,
+    srcaddr,
+    ts,
+    split(fqdn, '.') AS labels
+  FROM dns
+  WHERE length(element_at(split(fqdn, '.'), 1)) > 15  -- Focus on long subdomains
+),
+match AS (
+  SELECT
+    p.*,
+    s.suffix,
+    s.labels AS suffix_len
+  FROM parts p
+  JOIN dns_logs_db.public_suffixes s
+    ON (p.fqdn LIKE '%.' || s.suffix OR p.fqdn = s.suffix)
+),
+best AS (
+  SELECT *
+  FROM (
+    SELECT *, 
+           row_number() OVER (PARTITION BY fqdn ORDER BY suffix_len DESC) AS rn
+    FROM match
+  )
+  WHERE rn = 1
+)
+SELECT
+  CASE 
+    WHEN cardinality(labels) > suffix_len THEN
+      concat(element_at(labels, cardinality(labels) - suffix_len), '.', suffix)
+    ELSE suffix
+  END AS apex_domain,
+  count(*) AS query_count,
+  round(avg(length(element_at(labels, 1)))) AS avg_label_length,
+  array_agg(DISTINCT 
+    CASE 
+      WHEN regexp_like(element_at(labels, 1), '^[A-Fa-f0-9]{16,}$') THEN 'HEX'
+      WHEN regexp_like(element_at(labels, 1), '^[A-Za-z0-9+/]{16,}={0,2}$') THEN 'BASE64'
+      ELSE 'UNKNOWN'
+    END
+  ) AS encoding_patterns,
+  CASE 
+    WHEN count(*) > 50 THEN 'CRITICAL'
+    WHEN count(*) > 20 THEN 'HIGH'
+    WHEN count(*) > 10 THEN 'MEDIUM'
+    ELSE 'LOW'
+  END AS severity
+FROM best
+WHERE cardinality(labels) > suffix_len + 1
+GROUP BY apex_domain
+HAVING count(*) > 5
+ORDER BY query_count DESC, avg_label_length DESC
+LIMIT 25;
 ```
 
 ### Future Detection Patterns
