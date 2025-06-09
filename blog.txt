@@ -1,0 +1,21 @@
+DNS Exfil
+
+A while back I spent a little time learning more about DNS Data Exfitration and one simple form is to simply take data and chunk and encode into subdomains.  If you then make a DNS query to that subdomain, you have sent data to the nameserver which can then decode and rebuild the data from the chunks; simple but powerful. 
+
+This got me thinking, how could I both detect and protect against this.  There are many products and providers who offer protection but I wanted to understand more about this in terms of what kind of patterns to look for and what kind of protection you can put in place.  I set about creating a small setup using AWS and their managed services. 
+
+The pattern I decided to use as the basis for my experiment was high frequency DNS queries which, like the name, are a lot of queries in a short period of time, this is a good indiciator of a potential DNS exfil attempt.  To start I need to ensure all DNS queries for my VPC were routed through AWS DNS firewall.  DNS query logs were sent straight to S3 where I could now use Athena to query these logs.  I used Claude code to generate the Athena query I needed which was to look for more than 20 queries to the same apex domain in the last 5 mins.
+
+The end to end setup for generating DNS queries involved a single instance in the target VPC where I wanted to protect against DNS data exfil and a custom DNS Server in an external AWS account.  This is a server I created (along with client) which could decode and rebuild message chunks it received but for this experiment I just needed simple DNS traffic.  I created a simple loop of 250 iterations, without delay, and used dig to send queries to (6 random hex decimal charcters).dnsdemo.andrewrea.co.uk.
+
+The ultimate goal was to block the apex domain and subdomains once the traffic was detected and classified as high frequency queries and I needed an automated way of handling this, I had the ingestion through the firewall and I had the saved athena query to identify the traffic but I needed automation to then add a firewall rule to the DNS firewall to block the traffic.  This is where Lambda came in.  I created a Lambda function which would execute the saved athena query and if it returned a finding of HIGH or CRITICAL for a high frequency pattern it wouold create an blocking rule in the DNS firewall for the detected domain.  I set a schedule of 1 min for the Lambda function which, in combination with the 5 min interval for the query scope, this allowed me to detect and protect from high frequency DNS queries ver quickly (some timings below).
+
+Costs for running the lambda
+
+Other types of DNS Patterns to look for
+
+
+
+PowerDNS feature in dnsdist which would stop this kind of vulnerability
+https://chatgpt.com/c/68416b69-18b0-800c-bb2b-b9b796967990
+https://github.com/PowerDNS/pdns/issues/7380
